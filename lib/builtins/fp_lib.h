@@ -102,7 +102,7 @@ static inline void wideMultiply(rep_t a, rep_t b, rep_t *hi, rep_t *lo) {
 COMPILER_RT_ABI fp_t __adddf3(fp_t a, fp_t b);
 
 #elif defined QUAD_PRECISION
-#if __LDBL_MANT_DIG__ == 113
+#if __LDBL_MANT_DIG__ == 113 || (defined(__ANDROID__) && defined(__LP64__))
 #define CRT_LDBL_128BIT
 typedef __uint128_t rep_t;
 typedef __int128_t srep_t;
