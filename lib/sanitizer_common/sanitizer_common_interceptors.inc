@@ -218,6 +218,20 @@ INTERCEPTOR(SIZE_T, strlen, const char *s) {
 #define INIT_STRLEN
 #endif
 
+#if SANITIZER_INTERCEPT_STRNLEN
+INTERCEPTOR(SIZE_T, strnlen, const char *s, SIZE_T maxlen) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, strnlen, s, maxlen);
+  SIZE_T length = REAL(strnlen)(s, maxlen);
+  if (common_flags()->intercept_strlen)
+    COMMON_INTERCEPTOR_READ_RANGE(ctx, s, Min(length + 1, maxlen));
+  return length;
+}
+#define INIT_STRNLEN COMMON_INTERCEPT_FUNCTION(strnlen)
+#else
+#define INIT_STRNLEN
+#endif
+
 #if SANITIZER_INTERCEPT_TEXTDOMAIN
 INTERCEPTOR(char*, textdomain, const char *domainname) {
   void *ctx;
@@ -376,6 +390,51 @@ INTERCEPTOR(char*, strcasestr, const char *s1, const char *s2) {
 #define INIT_STRCASESTR COMMON_INTERCEPT_FUNCTION(strcasestr);
 #else
 #define INIT_STRCASESTR
+#endif
+
+#if SANITIZER_INTERCEPT_STRCHR
+INTERCEPTOR(char*, strchr, const char *s, int c) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, strchr, s, c);
+  char *result = REAL(strchr)(s, c);
+  uptr len = internal_strlen(s);
+  uptr n = result ? result - s + 1 : len + 1;
+  if (common_flags()->intercept_strchr)
+    COMMON_INTERCEPTOR_READ_STRING_OF_LEN(ctx, s, len, n);
+  return result;
+}
+#define INIT_STRCHR COMMON_INTERCEPT_FUNCTION(strchr)
+#else
+#define INIT_STRCHR
+#endif
+
+#if SANITIZER_INTERCEPT_STRCHRNUL
+INTERCEPTOR(char*, strchrnul, const char *s, int c) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, strchrnul, s, c);
+  char *result = REAL(strchrnul)(s, c);
+  uptr len = result - s + 1;
+  if (common_flags()->intercept_strchr)
+    COMMON_INTERCEPTOR_READ_STRING(ctx, s, len);
+  return result;
+}
+#define INIT_STRCHRNUL COMMON_INTERCEPT_FUNCTION(strchrnul)
+#else
+#define INIT_STRCHRNUL
+#endif
+
+#if SANITIZER_INTERCEPT_STRRCHR
+INTERCEPTOR(char*, strrchr, const char *s, int c) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, strrchr, s, c);
+  uptr len = internal_strlen(s);
+  if (common_flags()->intercept_strchr)
+    COMMON_INTERCEPTOR_READ_STRING_OF_LEN(ctx, s, len, len + 1);
+  return REAL(strrchr)(s, c);
+}
+#define INIT_STRRCHR COMMON_INTERCEPT_FUNCTION(strrchr)
+#else
+#define INIT_STRRCHR
 #endif
 
 #if SANITIZER_INTERCEPT_STRSPN
@@ -5400,12 +5459,16 @@ static void InitializeCommonInterceptors() {
 
   INIT_TEXTDOMAIN;
   INIT_STRLEN;
+  INIT_STRNLEN;
   INIT_STRCMP;
   INIT_STRNCMP;
   INIT_STRCASECMP;
   INIT_STRNCASECMP;
   INIT_STRSTR;
   INIT_STRCASESTR;
+  INIT_STRCHR;
+  INIT_STRCHRNUL;
+  INIT_STRRCHR;
   INIT_STRSPN;
   INIT_STRPBRK;
   INIT_MEMCHR;

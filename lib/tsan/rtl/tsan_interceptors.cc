@@ -699,31 +699,6 @@ TSAN_INTERCEPTOR(void*, memmove, void *dst, void *src, uptr n) {
   return REAL(memmove)(dst, src, n);
 }
 
-TSAN_INTERCEPTOR(char*, strchr, char *s, int c) {
-  SCOPED_TSAN_INTERCEPTOR(strchr, s, c);
-  char *res = REAL(strchr)(s, c);
-  uptr len = internal_strlen(s);
-  uptr n = res ? (char*)res - (char*)s + 1 : len + 1;
-  READ_STRING_OF_LEN(thr, pc, s, len, n);
-  return res;
-}
-
-#if !SANITIZER_MAC
-TSAN_INTERCEPTOR(char*, strchrnul, char *s, int c) {
-  SCOPED_TSAN_INTERCEPTOR(strchrnul, s, c);
-  char *res = REAL(strchrnul)(s, c);
-  uptr len = (char*)res - (char*)s + 1;
-  READ_STRING(thr, pc, s, len);
-  return res;
-}
-#endif
-
-TSAN_INTERCEPTOR(char*, strrchr, char *s, int c) {
-  SCOPED_TSAN_INTERCEPTOR(strrchr, s, c);
-  MemoryAccessRange(thr, pc, (uptr)s, internal_strlen(s) + 1, false);
-  return REAL(strrchr)(s, c);
-}
-
 TSAN_INTERCEPTOR(char*, strcpy, char *dst, const char *src) {  // NOLINT
   SCOPED_TSAN_INTERCEPTOR(strcpy, dst, src);  // NOLINT
   uptr srclen = internal_strlen(src);
@@ -1101,12 +1076,12 @@ INTERCEPTOR(int, pthread_cond_init, void *c, void *a) {
   return REAL(pthread_cond_init)(cond, a);
 }
 
-INTERCEPTOR(int, pthread_cond_wait, void *c, void *m) {
-  void *cond = init_cond(c);
-  SCOPED_TSAN_INTERCEPTOR(pthread_cond_wait, cond, m);
+static int cond_wait(ThreadState *thr, uptr pc, ScopedInterceptor *si,
+                     int (*fn)(void *c, void *m, void *abstime), void *c,
+                     void *m, void *t) {
   MemoryAccessRange(thr, pc, (uptr)c, sizeof(uptr), false);
   MutexUnlock(thr, pc, (uptr)m);
-  CondMutexUnlockCtx arg = {&si, thr, pc, m};
+  CondMutexUnlockCtx arg = {si, thr, pc, m};
   int res = 0;
   // This ensures that we handle mutex lock even in case of pthread_cancel.
   // See test/tsan/cond_cancel.cc.
@@ -1114,35 +1089,37 @@ INTERCEPTOR(int, pthread_cond_wait, void *c, void *m) {
     // Enable signal delivery while the thread is blocked.
     BlockingCall bc(thr);
     res = call_pthread_cancel_with_cleanup(
-        (int(*)(void *c, void *m, void *abstime))REAL(pthread_cond_wait),
-        cond, m, 0, (void(*)(void *arg))cond_mutex_unlock, &arg);
+        fn, c, m, t, (void (*)(void *arg))cond_mutex_unlock, &arg);
   }
-  if (res == errno_EOWNERDEAD)
-    MutexRepair(thr, pc, (uptr)m);
+  if (res == errno_EOWNERDEAD) MutexRepair(thr, pc, (uptr)m);
   MutexLock(thr, pc, (uptr)m);
   return res;
+}
+
+INTERCEPTOR(int, pthread_cond_wait, void *c, void *m) {
+  void *cond = init_cond(c);
+  SCOPED_TSAN_INTERCEPTOR(pthread_cond_wait, cond, m);
+  return cond_wait(thr, pc, &si, (int (*)(void *c, void *m, void *abstime))REAL(
+                                     pthread_cond_wait),
+                   cond, m, 0);
 }
 
 INTERCEPTOR(int, pthread_cond_timedwait, void *c, void *m, void *abstime) {
   void *cond = init_cond(c);
   SCOPED_TSAN_INTERCEPTOR(pthread_cond_timedwait, cond, m, abstime);
-  MemoryAccessRange(thr, pc, (uptr)c, sizeof(uptr), false);
-  MutexUnlock(thr, pc, (uptr)m);
-  CondMutexUnlockCtx arg = {&si, thr, pc, m};
-  int res = 0;
-  // This ensures that we handle mutex lock even in case of pthread_cancel.
-  // See test/tsan/cond_cancel.cc.
-  {
-    BlockingCall bc(thr);
-    res = call_pthread_cancel_with_cleanup(
-        REAL(pthread_cond_timedwait), cond, m, abstime,
-        (void(*)(void *arg))cond_mutex_unlock, &arg);
-  }
-  if (res == errno_EOWNERDEAD)
-    MutexRepair(thr, pc, (uptr)m);
-  MutexLock(thr, pc, (uptr)m);
-  return res;
+  return cond_wait(thr, pc, &si, REAL(pthread_cond_timedwait), cond, m,
+                   abstime);
 }
+
+#if SANITIZER_MAC
+INTERCEPTOR(int, pthread_cond_timedwait_relative_np, void *c, void *m,
+            void *reltime) {
+  void *cond = init_cond(c);
+  SCOPED_TSAN_INTERCEPTOR(pthread_cond_timedwait_relative_np, cond, m, reltime);
+  return cond_wait(thr, pc, &si, REAL(pthread_cond_timedwait_relative_np), cond,
+                   m, reltime);
+}
+#endif
 
 INTERCEPTOR(int, pthread_cond_signal, void *c) {
   void *cond = init_cond(c);
@@ -2191,7 +2168,13 @@ TSAN_INTERCEPTOR(int, fork, int fake) {
     return REAL(fork)(fake);
   SCOPED_INTERCEPTOR_RAW(fork, fake);
   ForkBefore(thr, pc);
-  int pid = REAL(fork)(fake);
+  int pid;
+  {
+    // On OS X, REAL(fork) can call intercepted functions (OSSpinLockLock), and
+    // we'll assert in CheckNoLocks() unless we ignore interceptors.
+    ScopedIgnoreInterceptors ignore;
+    pid = REAL(fork)(fake);
+  }
   if (pid == 0) {
     // child
     ForkChildAfter(thr, pc);
@@ -2618,9 +2601,6 @@ void InitializeInterceptors() {
   TSAN_INTERCEPT(memset);
   TSAN_INTERCEPT(memcpy);
   TSAN_INTERCEPT(memmove);
-  TSAN_INTERCEPT(strchr);
-  TSAN_INTERCEPT(strchrnul);
-  TSAN_INTERCEPT(strrchr);
   TSAN_INTERCEPT(strcpy);  // NOLINT
   TSAN_INTERCEPT(strncpy);
   TSAN_INTERCEPT(strdup);
