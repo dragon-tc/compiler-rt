@@ -1,7 +1,7 @@
 // RUN: %clangxx_asan -std=c++11 -O0 %s -o %t
 // RUN: not %run %t       2>&1 | FileCheck %s --check-prefix=READ
 // RUN: not %run %t write 2>&1 | FileCheck %s --check-prefix=WRITE
-// UNSUPPORTED: powerpc64,mips,s390
+// REQUIRES: x86-target-arch
 
 #include <sys/mman.h>
 
@@ -13,7 +13,7 @@ int main(int argc, char **argv) {
   // shadow mapping works). This is kinda hard to fix. Test a random address in
   // the application part of the address space.
   void *volatile p =
-      mmap(nullptr, 4096, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+      mmap(nullptr, 4096, PROT_READ, MAP_PRIVATE | MAP_ANON, 0, 0);
   munmap(p, 4096);
   if (argc == 1)
     Read((int *)p);
