@@ -295,15 +295,16 @@ typedef struct ValueProfData {
   static std::unique_ptr<ValueProfData>
   serializeFrom(const InstrProfRecord &Record);
   /*!
-   * Check the integrity of the record.
+   * Check the integrity of the record. Return the error code when
+   * an error is detected, otherwise return instrprof_error::success.
    */
-  Error checkIntegrity();
+  instrprof_error checkIntegrity();
   /*!
    * Return a pointer to \c ValueProfileData instance ready to be read.
    * All data in the instance are properly byte swapped. The input
    * data is assumed to be in little endian order.
    */
-  static Expected<std::unique_ptr<ValueProfData>>
+  static ErrorOr<std::unique_ptr<ValueProfData>>
   getValueProfData(const unsigned char *SrcBuffer,
                    const unsigned char *const SrcBufferEnd,
                    support::endianness SrcDataEndianness);
@@ -360,32 +361,11 @@ typedef struct ValueProfRecordClosure {
   ValueProfData *(*AllocValueProfData)(size_t TotalSizeInBytes);
 } ValueProfRecordClosure;
 
-/*
- * A wrapper struct that represents value profile runtime data.
- * Like InstrProfRecord class which is used by profiling host tools,
- * ValueProfRuntimeRecord also implements the abstract intefaces defined in
- * ValueProfRecordClosure so that the runtime data can be serialized using
- * shared C implementation. In this structure, NumValueSites and Nodes
- * members are the primary fields while other fields hold the derived
- * information for fast implementation of closure interfaces.
- */
-typedef struct ValueProfRuntimeRecord {
-  /* Number of sites for each value profile kind.  */
-  const uint16_t *NumValueSites;
-  /* An array of linked-list headers. The size of of the array is the
-   * total number of value profile sites : sum(NumValueSites[*])). Each
-   * linked-list stores the values profiled for a value profile site. */
-  ValueProfNode **Nodes;
-
-  /* Total number of value profile kinds which have at least one
-   *  value profile sites. */
-  uint32_t NumValueKinds;
-  ValueProfNode **NodesKind[IPVK_Last + 1];
-} ValueProfRuntimeRecord;
 
 ValueProfRecord *getFirstValueProfRecord(ValueProfData *VPD);
 ValueProfRecord *getValueProfRecordNext(ValueProfRecord *VPR);
 InstrProfValueData *getValueProfRecordValueData(ValueProfRecord *VPR);
+uint32_t getValueProfRecordHeaderSize(uint32_t NumValueSites);
 
 #undef INSTR_PROF_VALUE_PROF_DATA
 #endif  /* INSTR_PROF_VALUE_PROF_DATA */
@@ -479,9 +459,6 @@ uint32_t getValueProfDataSize(ValueProfRecordClosure *Closure) {
   uint32_t Kind;
   uint32_t TotalSize = sizeof(ValueProfData);
   const void *Record = Closure->Record;
-  uint32_t NumValueKinds = Closure->GetNumValueKinds(Record);
-  if (NumValueKinds == 0)
-    return TotalSize;
 
   for (Kind = IPVK_First; Kind <= IPVK_Last; Kind++) {
     uint32_t NumValueSites = Closure->GetNumValueSites(Record, Kind);
@@ -524,7 +501,7 @@ void serializeValueProfRecordFrom(ValueProfRecord *This,
 ValueProfData *serializeValueProfDataFrom(ValueProfRecordClosure *Closure,
                                           ValueProfData *DstData) {
   uint32_t Kind;
-  uint32_t TotalSize = 
+  uint32_t TotalSize =
       DstData ? DstData->TotalSize : getValueProfDataSize(Closure);
 
   ValueProfData *VPD =
