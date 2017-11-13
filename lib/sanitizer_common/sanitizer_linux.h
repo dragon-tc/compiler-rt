@@ -19,7 +19,7 @@
 #include "sanitizer_internal_defs.h"
 #include "sanitizer_posix.h"
 #include "sanitizer_platform_limits_posix.h"
-#include "bits/types/stack_t.h"
+#include "/usr/include/bits/types/stack_t.h"
 
 struct link_map;  // Opaque type returned by dlopen().
 struct sigaltstack;
