@@ -19,6 +19,7 @@
 #include "sanitizer_internal_defs.h"
 #include "sanitizer_posix.h"
 #include "sanitizer_platform_limits_posix.h"
+#include "bits/types/stack_t.h"
 
 struct link_map;  // Opaque type returned by dlopen().
 struct sigaltstack;
@@ -30,8 +31,8 @@ struct linux_dirent;
 
 // Syscall wrappers.
 uptr internal_getdents(fd_t fd, struct linux_dirent *dirp, unsigned int count);
-uptr internal_sigaltstack(const struct sigaltstack* ss,
-                          struct sigaltstack* oss);
+uptr internal_sigaltstack(const stack_t* ss,
+                          stack_t* oss);
 uptr internal_sigprocmask(int how, __sanitizer_sigset_t *set,
     __sanitizer_sigset_t *oldset);
 
