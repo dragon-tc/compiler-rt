@@ -33,6 +33,13 @@
 #  define SANITIZER_USE_GETAUXVAL 0
 # endif
 
+// Android clang++ was built on linux host with glibc 2.16 or newer.
+// AOSP prebuilts contain only x86_64-linux-glibc2.15-4.8.
+// Before we can provide newer glibc2.16, or build all toolchain components
+// with AOSP prebuilts header files, we set SANITIZER_USE_GETAUXVAL to 0.
+#undef SANITIZER_USE_GETAUXVAL
+#define SANITIZER_USE_GETAUXVAL 0
+
 # if SANITIZER_USE_GETAUXVAL
 #  include <sys/auxv.h>
 # else
