@@ -7421,6 +7421,16 @@ INTERCEPTOR(void, regfree, const void *preg) {
     COMMON_INTERCEPTOR_READ_RANGE(ctx, preg, struct_regex_sz);
   REAL(regfree)(preg);
 }
+#define INIT_REGEX                                                             \
+  COMMON_INTERCEPT_FUNCTION(regcomp);                                          \
+  COMMON_INTERCEPT_FUNCTION(regexec);                                          \
+  COMMON_INTERCEPT_FUNCTION(regerror);                                         \
+  COMMON_INTERCEPT_FUNCTION(regfree);
+#else
+#define INIT_REGEX
+#endif
+
+#if SANITIZER_INTERCEPT_REGEXSUB
 INTERCEPTOR(SSIZE_T, regnsub, char *buf, SIZE_T bufsiz, const char *sub,
             const struct __sanitizer_regmatch *rm, const char *str) {
   void *ctx;
@@ -7455,15 +7465,12 @@ INTERCEPTOR(SSIZE_T, regasub, char **buf, const char *sub,
   }
   return res;
 }
-#define INIT_REGEX                                                             \
-  COMMON_INTERCEPT_FUNCTION(regcomp);                                          \
-  COMMON_INTERCEPT_FUNCTION(regexec);                                          \
-  COMMON_INTERCEPT_FUNCTION(regerror);                                         \
-  COMMON_INTERCEPT_FUNCTION(regfree);                                          \
+
+#define INIT_REGEXSUB                                                          \
   COMMON_INTERCEPT_FUNCTION(regnsub);                                          \
   COMMON_INTERCEPT_FUNCTION(regasub);
 #else
-#define INIT_REGEX
+#define INIT_REGEXSUB
 #endif
 
 #if SANITIZER_INTERCEPT_FTS
@@ -7539,6 +7546,8 @@ INTERCEPTOR(int, fts_close, void *ftsp) {
 INTERCEPTOR(int, sysctl, int *name, unsigned int namelen, void *oldp,
             SIZE_T *oldlenp, void *newp, SIZE_T newlen) {
   void *ctx;
+  if (COMMON_INTERCEPTOR_NOTHING_IS_INITIALIZED)
+    return internal_sysctl(name, namelen, oldp, oldlenp, newp, newlen);
   COMMON_INTERCEPTOR_ENTER(ctx, sysctl, name, namelen, oldp, oldlenp, newp,
                            newlen);
   if (name)
@@ -7561,6 +7570,8 @@ INTERCEPTOR(int, sysctl, int *name, unsigned int namelen, void *oldp,
 INTERCEPTOR(int, sysctlbyname, char *sname, void *oldp, SIZE_T *oldlenp,
             void *newp, SIZE_T newlen) {
   void *ctx;
+  if (COMMON_INTERCEPTOR_NOTHING_IS_INITIALIZED)
+    return internal_sysctlbyname(sname, oldp, oldlenp, newp, newlen);
   COMMON_INTERCEPTOR_ENTER(ctx, sysctlbyname, sname, oldp, oldlenp, newp,
                            newlen);
   if (sname)
@@ -7844,6 +7855,74 @@ INTERCEPTOR(UINTMAX_T, strtou, const char *nptr, char **endptr, int base,
 #endif
 
 #if SANITIZER_INTERCEPT_CAPSICUM
+#define CAP_RIGHTS_INIT_INTERCEPTOR(cap_rights_init, rights, ...)          \
+  {                                                                        \
+    void *ctx;                                                             \
+    COMMON_INTERCEPTOR_ENTER(ctx, cap_rights_init, rights, ##__VA_ARGS__); \
+    if (rights)                                                            \
+      COMMON_INTERCEPTOR_READ_RANGE(ctx, rights, sizeof(*rights));         \
+    __sanitizer_cap_rights_t *ret =                                        \
+        REAL(cap_rights_init)(rights, ##__VA_ARGS__);                      \
+    if (ret)                                                               \
+      COMMON_INTERCEPTOR_WRITE_RANGE(ctx, ret, sizeof(*ret));              \
+    return ret;                                                            \
+  }
+
+#define CAP_RIGHTS_SET_INTERCEPTOR(cap_rights_set, rights, ...)           \
+  {                                                                       \
+    void *ctx;                                                            \
+    COMMON_INTERCEPTOR_ENTER(ctx, cap_rights_set, rights, ##__VA_ARGS__); \
+    if (rights)                                                           \
+      COMMON_INTERCEPTOR_READ_RANGE(ctx, rights, sizeof(*rights));        \
+    __sanitizer_cap_rights_t *ret =                                       \
+        REAL(cap_rights_set)(rights, ##__VA_ARGS__);                      \
+    if (ret)                                                              \
+      COMMON_INTERCEPTOR_WRITE_RANGE(ctx, ret, sizeof(*ret));             \
+    return ret;                                                           \
+  }
+
+#define CAP_RIGHTS_CLEAR_INTERCEPTOR(cap_rights_clear, rights, ...)         \
+  {                                                                         \
+    void *ctx;                                                              \
+    COMMON_INTERCEPTOR_ENTER(ctx, cap_rights_clear, rights, ##__VA_ARGS__); \
+    if (rights)                                                             \
+      COMMON_INTERCEPTOR_READ_RANGE(ctx, rights, sizeof(*rights));          \
+    __sanitizer_cap_rights_t *ret =                                         \
+        REAL(cap_rights_clear)(rights, ##__VA_ARGS__);                      \
+    if (ret)                                                                \
+      COMMON_INTERCEPTOR_WRITE_RANGE(ctx, ret, sizeof(*ret));               \
+    return ret;                                                             \
+  }
+
+#define CAP_RIGHTS_IS_SET_INTERCEPTOR(cap_rights_is_set, rights, ...)        \
+  {                                                                          \
+    void *ctx;                                                               \
+    COMMON_INTERCEPTOR_ENTER(ctx, cap_rights_is_set, rights, ##__VA_ARGS__); \
+    if (rights)                                                              \
+      COMMON_INTERCEPTOR_READ_RANGE(ctx, rights, sizeof(*rights));           \
+    return REAL(cap_rights_is_set)(rights, ##__VA_ARGS__);                   \
+  }
+
+INTERCEPTOR(__sanitizer_cap_rights_t *, cap_rights_init,
+            __sanitizer_cap_rights_t *rights) {
+  CAP_RIGHTS_INIT_INTERCEPTOR(cap_rights_init, rights);
+}
+
+INTERCEPTOR(__sanitizer_cap_rights_t *, cap_rights_set,
+            __sanitizer_cap_rights_t *rights) {
+  CAP_RIGHTS_SET_INTERCEPTOR(cap_rights_set, rights);
+}
+
+INTERCEPTOR(__sanitizer_cap_rights_t *, cap_rights_clear,
+            __sanitizer_cap_rights_t *rights) {
+  CAP_RIGHTS_CLEAR_INTERCEPTOR(cap_rights_clear, rights);
+}
+
+INTERCEPTOR(bool, cap_rights_is_set,
+            __sanitizer_cap_rights_t *rights) {
+  CAP_RIGHTS_IS_SET_INTERCEPTOR(cap_rights_is_set, rights);
+}
+
 INTERCEPTOR(int, cap_rights_limit, int fd,
             const __sanitizer_cap_rights_t *rights) {
   void *ctx;
@@ -7932,6 +8011,10 @@ INTERCEPTOR(int, cap_ioctls_get, int fd, uptr *cmds, SIZE_T maxcmds) {
   return ret;
 }
 #define INIT_CAPSICUM                          \
+  COMMON_INTERCEPT_FUNCTION(cap_rights_init); \
+  COMMON_INTERCEPT_FUNCTION(cap_rights_set); \
+  COMMON_INTERCEPT_FUNCTION(cap_rights_clear); \
+  COMMON_INTERCEPT_FUNCTION(cap_rights_is_set); \
   COMMON_INTERCEPT_FUNCTION(cap_rights_get);   \
   COMMON_INTERCEPT_FUNCTION(cap_rights_limit); \
   COMMON_INTERCEPT_FUNCTION(cap_rights_contains); \
@@ -8435,9 +8518,10 @@ INTERCEPTOR(char *, MD2Data, const unsigned char *data, unsigned int len,
     if (context) \
       COMMON_INTERCEPTOR_WRITE_RANGE(ctx, context, SHA##LEN##_CTX_sz); \
   } \
-  INTERCEPTOR(void, SHA##LEN##_Final, u8 digest[SHA##LEN##_digest_length], \
+  INTERCEPTOR(void, SHA##LEN##_Final, u8 digest[LEN/8], \
   void *context) { \
     void *ctx; \
+    CHECK_EQ(SHA##LEN##_digest_length, LEN/8); \
     COMMON_INTERCEPTOR_ENTER(ctx, SHA##LEN##_Final, digest, context); \
     if (context) \
       COMMON_INTERCEPTOR_READ_RANGE(ctx, context, SHA##LEN##_CTX_sz); \
@@ -9220,6 +9304,7 @@ static void InitializeCommonInterceptors() {
   INIT_SETVBUF;
   INIT_GETVFSSTAT;
   INIT_REGEX;
+  INIT_REGEXSUB;
   INIT_FTS;
   INIT_SYSCTL;
   INIT_ASYSCTL;
