@@ -1,9 +1,8 @@
 //===-- sanitizer_platform_limits_netbsd.cc -------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -220,6 +219,7 @@
 #include <fts.h>
 #include <regex.h>
 #include <fstab.h>
+#include <stringlist.h>
 // clang-format on
 
 // Include these after system headers to avoid name clashes and ambiguities.
@@ -831,6 +831,7 @@ unsigned struct_RF_ComponentLabel_sz = sizeof(RF_ComponentLabel_t);
 unsigned struct_RF_SingleComponent_sz = sizeof(RF_SingleComponent_t);
 unsigned struct_RF_ProgressInfo_sz = sizeof(RF_ProgressInfo_t);
 unsigned struct_nvlist_ref_sz = sizeof(struct __sanitizer_nvlist_ref_t);
+unsigned struct_StringList_sz = sizeof(StringList);
 
 const unsigned IOCTL_NOT_PRESENT = 0;
 
